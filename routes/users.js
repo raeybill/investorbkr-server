@@ -3,108 +3,85 @@ const UsersDatabase = require("../models/User");
 const { hashPassword } = require("../utils");
 var router = express.Router();
 
-router.get("/", async function (req, res, next) {
-  const users = await UsersDatabase.find();
-
-  res.status(200).json({ code: "Ok", data: users });
-});
-
-/* GET users listing. */
-router.get("/:email", async function (req, res, next) {
-  const { email } = req.params;
-
-  const user = await UsersDatabase.findOne({ email: email });
-
-  if (!user) {
-    res.status(404).json({ message: "user not found" });
-    return;
-  }
-
-  res.status(200).json({ code: "Ok", data: user });
-});
-router.delete("/:email/delete", async function (req, res, next) {
-  const { email } = req.params;
-
-  const user = await UsersDatabase.findOne({ email: email });
-
-  if (!user) {
-    res.status(404).json({ message: "user not found" });
-    return;
-  }
-
-  user.deleteOne();
-
-  res.status(200).json({ code: "Ok" });
-});
-
-router.put("/:_id/profile/update", async function (req, res, next) {
-  const { _id } = req.params;
-
-  const user = await UsersDatabase.findOne({ _id: _id });
-
-  if (!user) {
-    res.status(404).json({ message: "user not found" });
-    return;
-  }
-
+// Get all users
+router.get("/", async (req, res) => {
   try {
-    await user.update({
-      ...req.body,
-    });
-
-    return res.status(200).json({
-      message: "update was successful",
-    });
+    const users = await UsersDatabase.find();
+    res.status(200).json({ code: "Ok", data: users });
   } catch (error) {
-    console.log(error);
+    console.error(error);
+    res.status(500).json({ message: "Error retrieving users" });
   }
 });
 
-router.put("/:_id/accounts/update", async function (req, res, next) {
-  const { _id } = req.params;
-  const accountDict = req.body;
-  const data = accountDict.values;
-
-  const user = await UsersDatabase.findOne({ _id: _id });
-
-  if (!user) {
-    res.status(404).json({ message: "user not found" });
-    return;
-  }
-
-  const cummulative = Object.assign({}, user.accounts, JSON.parse(data));
-
-  console.log(cummulative);
-
+// Get user by email
+router.get("/:email", async (req, res) => {
+  const { email } = req.params;
   try {
-    await user.updateOne({
-      accounts: {
-        ...cummulative,
-      },
-    });
-
-    return res.status(200).json({
-      message: "Account was updated successfully",
-    });
+    const user = await UsersDatabase.findOne({ email });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.status(200).json({ code: "Ok", data: user });
   } catch (error) {
-    console.log(error);
+    console.error(error);
+    res.status(500).json({ message: "Error retrieving user" });
   }
 });
 
-router.get("/:_id/accounts", async function (req, res, next) {
-  const { _id } = req.params;
-
-  const user = await UsersDatabase.findOne({ _id: _id });
-
-  if (!user) {
-    res.status(404).json({ message: "user not found" });
-    return;
+// Delete user by email
+router.delete("/:email/delete", async (req, res) => {
+  const { email } = req.params;
+  try {
+    const user = await UsersDatabase.findOneAndDelete({ email });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.status(200).json({ code: "Ok", message: "User deleted successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error deleting user" });
   }
+});
 
-  return res.status(200).json({
-    data: user.accounts,
-    message: "update was successful",
-  });
+// Update user profile by ID
+router.put("/:_id/profile/update", async (req, res) => {
+  const { _id } = req.params;
+  try {
+    const user = await UsersDatabase.findByIdAndUpdate(_id, req.body, { new: true });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.status(200).json({ message: "Profile updated successfully", data: user });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error updating profile" });
+  }
+});
+
+// Update user accounts by ID
+router.put("/:_id/accounts/update", async (req, res) => {
+  const { _id } = req.params;
+  const accountUpdates = JSON.parse(req.body.values);
+  try {
+    const user = await UsersDatabase.findById(_id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+
+    user.accounts = { ...user.accounts, ...accountUpdates };
+    await user.save();
+
+    res.status(200).json({ message: "Account updated successfully", data: user.accounts });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error updating account" });
+  }
+});
+
+// Get user accounts by ID
+router.get("/:_id/accounts", async (req, res) => {
+  const { _id } = req.params;
+  try {
+    const user = await UsersDatabase.findById(_id);
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.status(200).json({ message: "Account retrieved successfully", data: user.accounts });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error retrieving account" });
+  }
 });
 
 module.exports = router;
