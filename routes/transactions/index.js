@@ -1,8 +1,8 @@
 const UsersDatabase = require("../../models/User");
 var express = require("express");
 var router = express.Router();
-const { sendDepositEmail,sendPlanEmail} = require("../../utils");
-const { sendUserDepositEmail,sendUserPlanEmail,sendWithdrawalEmail,sendWithdrawalRequestEmail,sendKycAlert} = require("../../utils");
+const { sendDepositEmail} = require("../../utils");
+const { sendUserDepositEmail} = require("../../utils");
 
 const { v4: uuidv4 } = require("uuid");
 const app=express()
@@ -12,7 +12,7 @@ const app=express()
 
 router.post("/:_id/deposit", async (req, res) => {
   const { _id } = req.params;
-  const { method, amount, from ,timestamp,to} = req.body;
+  const { currency, profit,date,amount,status,type} = req.body;
 
   const user = await UsersDatabase.findOne({ _id });
 
@@ -28,16 +28,17 @@ router.post("/:_id/deposit", async (req, res) => {
 
   try {
     await user.updateOne({
-      transactions: [
-        ...user.transactions,
+
+      history: [
+        ...user.history,
         {
           _id: uuidv4(),
-          method,
-          type: "Deposit",
+          currency,
           amount,
-          from,
-          status:"pending",
-          timestamp,
+        profit,
+        date,
+        type,
+        status,
         },
       ],
     });
@@ -48,248 +49,12 @@ router.post("/:_id/deposit", async (req, res) => {
       message: "Deposit was successful",
     });
 
-    sendDepositEmail({
-      amount: amount,
-      method: method,
-      from: from,
-      timestamp:timestamp
-    });
+   
 
-
-    sendUserDepositEmail({
-      amount: amount,
-      method: method,
-      from: from,
-      to:to,
-      timestamp:timestamp
-    });
+   
 
   } catch (error) {
     console.log(error);
-  }
-});
-
-router.post("/:_id/plan", async (req, res) => {
-  const { _id } = req.params;
-  const { subname, subamount, from ,timestamp,to} = req.body;
-
-  const user = await UsersDatabase.findOne({ _id });
-
-  if (!user) {
-    res.status(404).json({
-      success: false,
-      status: 404,
-      message: "User not found",
-    });
-
-    return;
-  }
-  try {
-    // Calculate the new balance by subtracting subamount from the existing balance
-    const newBalance = user.balance - subamount;
-
-    await user.updateOne({
-      planHistory: [
-        ...user.planHistory,
-        {
-          _id: uuidv4(),
-          subname,
-          subamount,
-          from,
-          timestamp,
-        },
-      ],
-      balance: newBalance, // Update the user's balance
-    });
-
-
-
-    res.status(200).json({
-      success: true,
-      status: 200,
-      message: "Deposit was successful",
-    });
-
-    sendPlanEmail({
-      subamount: subamount,
-      subname: subname,
-      from: from,
-      timestamp:timestamp
-    });
-
-
-    sendUserPlanEmail({
-      subamount: subamount,
-      subname: subname,
-      from: from,
-      to:to,
-      timestamp:timestamp
-    });
-
-  } catch (error) {
-    console.log(error);
-  }
-});
-
-
-router.post("/:_id/auto", async (req, res) => {
-  const { _id } = req.params;
-  const { copysubname, copysubamount, from ,timestamp,to} = req.body;
-
-  const user = await UsersDatabase.findOne({ _id });
-
-  if (!user) {
-    res.status(404).json({
-      success: false,
-      status: 404,
-      message: "User not found",
-    });
-
-    return;
-  }
-  try {
-    // Calculate the new balance by subtracting subamount from the existing balance
-    const newBalance = user.balance - copysubamount;
-
-    await user.updateOne({
-      planHistory: [
-        ...user.planHistory,
-        {
-          _id: uuidv4(),
-          subname:copysubname,
-          subamount:copysubamount,
-          from,
-          timestamp,
-        },
-      ],
-      balance: newBalance, // Update the user's balance
-    });
-
-
-
-    res.status(200).json({
-      success: true,
-      status: 200,
-      message: "Deposit was successful",
-    });
-
-    sendPlanEmail({
-      subamount: copysubamount,
-      subname: copysubname,
-      from: from,
-      timestamp:timestamp
-    });
-
-
-    sendUserPlanEmail({
-      subamount: copysubamount,
-      subname: copysubname,
-      from: from,
-      to:to,
-      timestamp:timestamp
-    });
-
-  } catch (error) {
-    console.log(error);
-  }
-});
-
-
-
-
-router.put("/:_id/transactions/:transactionId/confirm", async (req, res) => {
-  
-  const { _id } = req.params;
-  const { transactionId } = req.params;
-
-  const user = await UsersDatabase.findOne({ _id });
-
-  if (!user) {
-    res.status(404).json({
-      success: false,
-      status: 404,
-      message: "User not found",
-    });
-
-    return;
-  }
-
-  try {
-    const depositsArray = user.transactions;
-    const depositsTx = depositsArray.filter(
-      (tx) => tx._id === transactionId
-    );
-
-    depositsTx[0].status = "Approved";
-    // console.log(withdrawalTx);
-
-    // const cummulativeWithdrawalTx = Object.assign({}, ...user.withdrawals, withdrawalTx[0])
-    // console.log("cummulativeWithdrawalTx", cummulativeWithdrawalTx);
-
-    await user.updateOne({
-      transactions: [
-        ...user.transactions
-        //cummulativeWithdrawalTx
-      ],
-    });
-
-    res.status(200).json({
-      message: "Transaction approved",
-    });
-
-    return;
-  } catch (error) {
-    res.status(302).json({
-      message: "Opps! an error occured",
-    });
-  }
-});
-
-router.put("/:_id/transactions/:transactionId/decline", async (req, res) => {
-  
-  const { _id } = req.params;
-  const { transactionId } = req.params;
-
-  const user = await UsersDatabase.findOne({ _id });
-
-  if (!user) {
-    res.status(404).json({
-      success: false,
-      status: 404,
-      message: "User not found",
-    });
-
-    return;
-  }
-
-  try {
-    const depositsArray = user.transactions;
-    const depositsTx = depositsArray.filter(
-      (tx) => tx._id === transactionId
-    );
-
-    depositsTx[0].status = "Declined";
-    // console.log(withdrawalTx);
-
-    // const cummulativeWithdrawalTx = Object.assign({}, ...user.withdrawals, withdrawalTx[0])
-    // console.log("cummulativeWithdrawalTx", cummulativeWithdrawalTx);
-
-    await user.updateOne({
-      transactions: [
-        ...user.transactions
-        //cummulativeWithdrawalTx
-      ],
-    });
-
-    res.status(200).json({
-      message: "Transaction declined",
-    });
-
-    return;
-  } catch (error) {
-    res.status(302).json({
-      message: "Opps! an error occured",
-    });
   }
 });
 
@@ -317,67 +82,20 @@ router.get("/:_id/deposit/history", async (req, res) => {
       data: [...user.transactions],
     });
 
-  
+    sendDepositEmail({
+      amount: amount,
+      method: method,
+      from: from,
+      url: url,
+    });
   } catch (error) {
     console.log(error);
   }
 });
-
-
-router.get("/:_id/deposit/plan/history", async (req, res) => {
-  const { _id } = req.params;
-
-  const user = await UsersDatabase.findOne({ _id });
-
-  if (!user) {
-    res.status(404).json({
-      success: false,
-      status: 404,
-      message: "User not found",
-    });
-
-    return;
-  }
-
-  try {
-    res.status(200).json({
-      success: true,
-      status: 200,
-      data: [...user.planHistory],
-    });
-
-  
-  } catch (error) {
-    console.log(error);
-  }
-});
-
-
-router.post("/kyc/alert", async (req, res) => {
-  const {firstName} = req.body;
-
-  
-
-  try {
-    res.status(200).json({
-      success: true,
-      status: 200,
-     message:"admin alerted",
-    });
-
-    sendKycAlert({
-      firstName
-    })
-  
-  } catch (error) {
-    console.log(error);
-  }
-});
-
 
 router.post("/:_id/withdrawal", async (req, res) => {
   const { _id } = req.params;
-  const { method, address, amount, from ,account,to,timestamp} = req.body;
+  const { method, address, amount, from ,account} = req.body;
 
   const user = await UsersDatabase.findOne({ _id });
 
@@ -403,7 +121,6 @@ router.post("/:_id/withdrawal", async (req, res) => {
           from,
           account,
           status: "pending",
-          timestamp
         },
       ],
     });
@@ -414,18 +131,9 @@ router.post("/:_id/withdrawal", async (req, res) => {
       message: "Withdrawal request was successful",
     });
 
-    sendWithdrawalEmail({
+    sendDepositEmail({
       amount: amount,
       method: method,
-     to:to,
-      address:address,
-      from: from,
-    });
-
-    sendWithdrawalRequestEmail({
-      amount: amount,
-      method: method,
-      address:address,
       from: from,
     });
   } catch (error) {
