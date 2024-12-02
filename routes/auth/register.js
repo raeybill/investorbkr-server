@@ -1,481 +1,157 @@
-
-var express = require("express");
-var { hashPassword,sendPasswordOtp,userRegisteration, sendWelcomeEmail,resendWelcomeEmail,resetEmail, sendUserDetails, userRegisteration } = require("../../utils");
+const express = require("express");
+const { hashPassword, sendPasswordOtp, sendWelcomeEmail, resetEmail, sendUserDetails } = require("../../utils");
 const UsersDatabase = require("../../models/User");
-var router = express.Router();
 const { v4: uuidv4 } = require("uuid");
+const router = express.Router();
 
-// Function to generate a referral code
-function generateReferralCode(length) {
+// Utility function to generate a referral code
+function generateReferralCode(length = 6) {
   const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-  let code = "";
-
-  for (let i = 0; i < length; i++) {
-    const randomIndex = Math.floor(Math.random() * characters.length);
-    code += characters.charAt(randomIndex);
-  }
-
-  return code;
+  return Array.from({ length }, () => characters.charAt(Math.floor(Math.random() * characters.length))).join("");
 }
 
+// Validation Middleware (for better input handling)
+const validateRegistrationInput = (req, res, next) => {
+  const { firstName, lastName, email, password, country } = req.body;
 
-router.post("/register", async (req, res) => {
-  const { firstName, lastName, email, password, country, referralCode,phone} = req.body;
+  if (!firstName || !lastName || !email || !password || !country) {
+    return res.status(400).json({ success: false, message: "All fields are required" });
+  }
+
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!emailRegex.test(email)) {
+    return res.status(400).json({ success: false, message: "Invalid email format" });
+  }
+
+  if (password.length < 6) {
+    return res.status(400).json({ success: false, message: "Password must be at least 6 characters long" });
+  }
+
+  next();
+};
+
+// Registration Route
+router.post("/register", validateRegistrationInput, async (req, res) => {
+  const { firstName, lastName, email, password, country, referralCode } = req.body;
 
   try {
-    // Check if any user has that email
-    const user = await UsersDatabase.findOne({ email });
-
-    if (user) {
-      return res.status(400).json({
-        success: false,
-        message: "Email address is already taken",
-      });
+    // Check if the email is already in use
+    const existingUser = await UsersDatabase.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ success: false, message: "Email is already in use" });
     }
 
-
-    // Find the referrer based on the provided referral code
+    // Check the referral code (optional)
     let referrer = null;
-    
     if (referralCode) {
       referrer = await UsersDatabase.findOne({ referralCode });
       if (!referrer) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid referral code",
-        });
+        return res.status(400).json({ success: false, message: "Invalid referral code" });
       }
     }
 
-    // Create a new user with referral information
+    // Create a new user object
     const newUser = {
       firstName,
       lastName,
       email,
       password: hashPassword(password),
       country,
-      trader:"",
-      phone:phone,
-      amountDeposited: " You are not eligible to view livestream of ongoing trade.Kindly contact your trader or support.",
+      kyc: "unverified",
+      amountDeposited: "You are not eligible to view the livestream of ongoing trade. Contact support.",
       profit: 0,
       balance: 0,
-      copytrading:0,
-      plan:" ",
-      kyc:"unverified",
-      condition:" ",
-      referalBonus: 0,
+      copytrading: 0,
+      plan: "",
+      condition: "",
+      referralBonus: 0,
       transactions: [],
       withdrawals: [],
       planHistory: [],
-     
       accounts: {
-        eth: {
-          address: "",
-        },
-        ltc: {
-          address: "",
-        },
-        btc: {
-          address: "",
-        },
-        usdt: {
-          address: "",
-        },
+        eth: { address: "" },
+        ltc: { address: "" },
+        btc: { address: "" },
+        usdt: { address: "" },
       },
       verified: false,
       isDisabled: false,
-      referredUsers:[],
-      referralCode: generateReferralCode(6), // Generate a referral code for the new user
-      referredBy:null, // Store the ID of the referrer if applicable
+      referredUsers: [],
+      referralCode: generateReferralCode(),
+      referredBy: referrer ? referrer._id : null,
     };
 
+    // Save the user to the database
+    const createdUser = await UsersDatabase.create(newUser);
+
+    // If referrer exists, update their referred users
     if (referrer) {
-      newUser.referredBy=referrer.firstName;
-      referrer.referredUsers.push(newUser.firstName);
+      referrer.referredUsers.push(createdUser._id);
       await referrer.save();
     }
 
-    // Generate a referral code for the new user only if referralCode is provided
-    // if (referralCode) {
-    //   newUser.referralCode = generateReferralCode(6);
-    // }
+    // Send a welcome email
+    sendWelcomeEmail({ to: email, token: uuidv4() });
 
-    // If there's a referrer, update their referredUsers list
-   
-    // Create the new user in the database
-    const createdUser = await UsersDatabase.create(newUser);
-    const token = uuidv4();
-    sendWelcomeEmail({ to: email, token });
-userRegisteration({firstName,email});
-
-    return res.status(200).json({ code: "Ok", data: createdUser });
+    return res.status(201).json({ success: true, data: createdUser });
   } catch (error) {
-    console.error("Error:", error);
-    return res.status(500).json({
-      success: false,
-      message: "Internal server error",
-    });
+    console.error("Error during registration:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
-
-
-// router.post("/register", async (req, res) => {
-//   const { firstName, lastName, email, password, country, referralCode } = req.body;
-
-//   try {
-//     // Check if any user has that email
-//     const user = await UsersDatabase.findOne({ email });
-
-//     if (user) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Email address is already taken",
-//       });
-//     }
-
-//     // Find the referrer based on the provided referral code
-//     let referrer = null;
-//     if (referralCode) {
-//       referrer = await UsersDatabase.findOne({ referralCode });
-//       if (!referrer) {
-//         return res.status(400).json({
-//           success: false,
-//           message: "Invalid referral code",
-//         });
-//       }
-//     }
-
-//     // Create a new user with referral information
-//     const newUser = {
-//       firstName,
-//       lastName,
-//       email,
-//       password: hashPassword(password),
-//       country,
-//       amountDeposited: 0,
-//       profit: 0,
-//       balance: 0,
-//       referalBonus: 0,
-//       transactions: [],
-//       withdrawals: [],
-//       accounts: {
-//         eth: {
-//           address: "",
-//         },
-//         ltc: {
-//           address: "",
-//         },
-//         btc: {
-//           address: "",
-//         },
-//         usdt: {
-//           address: "",
-//         },
-//       },
-//       verified: false,
-//       isDisabled: false,
-//     };
-
-//     // Generate a referral code for the new user only if referralCode is provided
-//     if (referralCode) {
-//       newUser.referralCode = generateReferralCode(6);
-//     }
-
-//     // If there's a referrer, update their referredUsers list
-//     if (referrer) {
-//       newUser.referredBy = referrer._id;
-//       referrer.referredUsers.push(newUser._id);
-//       await referrer.save();
-//     }
-
-//     // Create the new user in the database
-//     const createdUser = await UsersDatabase.create(newUser);
-//     const token = uuidv4();
-//     sendWelcomeEmail({ to: email, token });
-
-//     return res.status(200).json({ code: "Ok", data: createdUser });
-//   } catch (error) {
-//     console.error("Error:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Internal server error",
-//     });
-//   }
-// });
-
-
-// router.post("/register", async (req, res) => {
-//   const { firstName, lastName, email, password, country } = req.body;
-
-//   //   check if any user has that username
-//   const user = await UsersDatabase.findOne({ email });
-
-//   // if user exists
-//   if (user) {
-//     res.status(400).json({
-//       success: false,
-//       message: "email address is already taken",
-//     });
-//     return;
-//   }
-
-//   await UsersDatabase.create({
-//     firstName,
-//     lastName,
-//     email,
-//     password: hashPassword(password),
-//     country,
-//     amountDeposited: 0,
-//     profit: 0,
-//     balance: 0,
-//     referalBonus: 0,
-//     transactions: [],
-//     withdrawals: [],
-//     accounts: {
-//       eth: {
-//         address: "",
-//       },
-//       ltc: {
-//         address: "",
-//       },
-//       btc: {
-//         address: "",
-//       },
-//       usdt: {
-//         address: "",
-//       },
-//     },
-//     verified: false,
-//     isDisabled: false,
-//   })
-//     .then((data) => {
-//       return res.json({ code: "Ok", data: user });
-//     })
-//     .then(() => {
-//       var token = uuidv4();
-//       sendWelcomeEmail({ to: req.body.email, token });
-//     })
-//     .catch((error) => {
-//       res.status(400).json({
-//         success: false,
-//         message: error.message,
-//       });
-//     });
-// });
-
-
-
+// Resend OTP Route
 router.post("/register/resend", async (req, res) => {
   const { email } = req.body;
-  const user = await UsersDatabase.findOne({ email });
-
-  if (!user) {
-    res.status(404).json({
-      success: false,
-      status: 404,
-      message: "User not found",
-    });
-
-    return;
-  }
 
   try {
-    
-    res.status(200).json({
-      success: true,
-      status: 200,
-      message: "OTP resent successfully",
-    });
-    
- sendPasswordOtp({to:req.body.email})
-   
-    // sendUserDetails({
-    //   to:req.body.email
-    //   });
-      
+    const user = await UsersDatabase.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
+    sendPasswordOtp({ to: email });
+    return res.status(200).json({ success: true, message: "OTP resent successfully" });
   } catch (error) {
-    console.log(error);
+    console.error("Error resending OTP:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
-
+// Reset Email Route
 router.post("/register/reset", async (req, res) => {
   const { email } = req.body;
-  const user = await UsersDatabase.findOne({ email });
-
-  if (!user) {
-    res.status(404).json({
-      success: false,
-      status: 404,
-      message: "User not found",
-    });
-
-    return;
-  }
 
   try {
-    
-    res.status(200).json({
-      success: true,
-      status: 200,
-      message: "OTP resent successfully",
-    });
+    const user = await UsersDatabase.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
-    resetEmail({
-      to:req.body.email
-    });
-
-
-   
-
+    resetEmail({ to: email });
+    return res.status(200).json({ success: true, message: "Password reset email sent successfully" });
   } catch (error) {
-    console.log(error);
+    console.error("Error during reset email:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
+// Verify OTP Route
 router.post("/register/otp", async (req, res) => {
-  const { email } = req.body;
-  const { password }=req.body;
-  const {firstName }=req.body;
-  const user = await UsersDatabase.findOne({ email });
-
-  if (!user) {
-    res.status(404).json({
-      success: false,
-      status: 404,
-      message: "User not found",
-    });
-
-    return;
-  }
+  const { email, password, firstName } = req.body;
 
   try {
-    
-    res.status(200).json({
-      success: true,
-      status: 200,
-      message: "OTP correct ",
-    });
+    const user = await UsersDatabase.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
 
-    sendUserDetails({
-      to:req.body.email,
-      password:req.body.password,
-      firstName:req.body.firstName
-    });
-
-
-   
-
+    sendUserDetails({ to: email, password, firstName });
+    return res.status(200).json({ success: true, message: "OTP verified successfully" });
   } catch (error) {
-    console.log(error);
+    console.error("Error verifying OTP:", error);
+    return res.status(500).json({ success: false, message: "Internal server error" });
   }
 });
 
-
-
-
-// const express = require("express");
-// const { hashPassword, sendWelcomeEmail, resendWelcomeEmail } = require("../../utils");
-// const UsersDatabase = require("../../models/User");
-// const router = express.Router();
-// const { v4: uuidv4 } = require("uuid");
-
-// // Function to generate a referral code
-// function generateReferralCode(length) {
-//   const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
-//   let code = "";
-
-//   for (let i = 0; i < length; i++) {
-//     const randomIndex = Math.floor(Math.random() * characters.length);
-//     code += characters.charAt(randomIndex);
-//   }
-
-//   return code;
-// }
-
-
-
-// // Your registration route
-
-// // Your registration route
-// router.post("/register", async (req, res) => {
-//   const { firstName, lastName, email, password, country, referralCode } = req.body;
-
-//   try {
-//     // Check if any user has that email
-//     const user = await UsersDatabase.findOne({ email });
-
-//     if (user) {
-//       return res.status(400).json({
-//         success: false,
-//         message: "Email address is already taken",
-//       });
-//     }
-
-//     // Find the referrer based on the provided referral code
-//     let referrer = null;
-//     if (referralCode) {
-//       referrer = await UsersDatabase.findOne({ referralCode });
-//       // You can remove the code that checks for a valid referral code here
-
-//       // Optionally, you can handle the case where the referral code is invalid
-//       // by setting referrer to null and proceeding with registration
-//     }
-
-//     // Create a new user with referral information
-//     const newUser = {
-//       firstName,
-//       lastName,
-//       email,
-//       password: hashPassword(password),
-//       country,
-//       amountDeposited: 0,
-//       profit: 0,
-//       balance: 0,
-//       referalBonus: 0,
-//       transactions: [],
-//       withdrawals: [],
-//       accounts: {
-//         eth: {
-//           address: "",
-//         },
-//         ltc: {
-//           address: "",
-//         },
-//         btc: {
-//           address: "",
-//         },
-//         usdt: {
-//           address: "",
-//         },
-//       },
-//       verified: false,
-//       isDisabled: false,
-//       referralCode: generateReferralCode(6), // Generate a referral code for the new user
-//       referredBy: referrer ? referrer._id : null, // Store the ID of the referrer if applicable
-//       referredUsers: [], // Initialize the referredUsers property as an empty array
-//     };
-
-//     // Create the new user in the database
-//     const createdUser = await User.create(newUser);
-//     const token = uuidv4();
-//     sendWelcomeEmail({ to: email, token });
-
-//     // If there's a referrer, update their referredUsers list
-//     if (referrer) {
-//       referrer.referredUsers.push(createdUser._id);
-//       await referrer.save();
-//     }
-
-//     return res.status(200).json({ code: "Ok", data: createdUser });
-//   } catch (error) {
-//     console.error("Error:", error);
-//     return res.status(500).json({
-//       success: false,
-//       message: "Internal server error",
-//     });
-//   }
-// });
 module.exports = router;
