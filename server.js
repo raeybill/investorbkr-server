@@ -1,63 +1,63 @@
-var createError = require("http-errors");
-var express = require("express");
-var cookieParser = require("cookie-parser");
-var logger = require("morgan");
+const createError = require("http-errors");
+const express = require("express");
+const cookieParser = require("cookie-parser");
+const logger = require("morgan");
 const cors = require("cors");
 const dotenv = require("dotenv");
+const mongoose = require("mongoose");
+
 dotenv.config();
 
-var indexRouter = require("./routes/index");
-var loginAuthRouter = require("./routes/auth/login");
-var verifyAuthRouter = require("./routes/auth/verify-email");
-var transactionsRouter = require("./routes/transactions");
-var registerAuthRouter = require("./routes/auth/register");
-var fogortPasswordAuthRouter = require("./routes/auth/forgot-password");
-var usersRouter = require("./routes/users");
-
-var app = express();
-var PORT = process.env.PORT || 8080;
+const app = express();
+const PORT = process.env.PORT || 8080;
 
 // Middleware setup
+app.use(cors());
 app.use(logger("dev"));
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 app.use(cookieParser());
-app.use(cors());
 
-// Routes setup
+// Routes
+const indexRouter = require("./routes/index");
+const loginAuthRouter = require("./routes/auth/login");
+const verifyAuthRouter = require("./routes/auth/verify-email");
+const transactionsRouter = require("./routes/transactions");
+const registerAuthRouter = require("./routes/auth/register");
+const forgotPasswordAuthRouter = require("./routes/auth/forgot-password");
+const usersRouter = require("./routes/users");
+
+// Route setup
 app.use("/", indexRouter);
-app.use("/users", usersRouter);
 app.use("/auth", loginAuthRouter);
 app.use("/auth", verifyAuthRouter);
 app.use("/auth", registerAuthRouter);
-app.use("/auth", fogortPasswordAuthRouter);
+app.use("/auth", forgotPasswordAuthRouter);
 app.use("/transactions", transactionsRouter);
+app.use("/users", usersRouter);
 
 // Error handling
-app.use(function (req, res, next) {
-  next(createError(404));
+app.use((req, res, next) => {
+  next(createError(404, "The requested resource was not found."));
 });
 
-app.use(function (err, req, res, next) {
-  res.locals.message = err.message;
-  res.locals.error = req.app.get("env") === "development" ? err : {};
+app.use((err, req, res, next) => {
   res.status(err.status || 500);
-  res.json({ message: err.message, error: err });
+  res.json({
+    message: err.message,
+    error: req.app.get("env") === "development" ? err : {},
+  });
 });
+
+// MongoDB connection
+const uri = process.env.MONGODB_URI;
+
+mongoose
+  .connect(uri, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log("Connected to MongoDB"))
+  .catch((error) => console.error("Error connecting to MongoDB:", error));
 
 // Start the server
 app.listen(PORT, () => {
   console.log(`Server is running on port ${PORT}`);
 });
-
-const mongoose = require('mongoose');
-
-// Replace this with your MongoDB connection string
-const uri = "mongodb+srv://raymondowen75:6GNlZ4NydYziMiSC@investorbkr0.izgb4.mongodb.net/?retryWrites=true&w=majority&appName=investorbkr0";
-
-mongoose.connect(uri, {
-  useNewUrlParser: true,
-  useUnifiedTopology: true,
-})
-.then(() => console.log('Connected to MongoDB'))
-.catch((error) => console.error('Error connecting to MongoDB:', error));
