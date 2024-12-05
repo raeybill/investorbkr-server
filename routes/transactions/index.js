@@ -1,46 +1,43 @@
-const UsersDatabase = require("../../models/User");
-var express = require("express");
-var router = express.Router();
-const { sendDepositEmail} = require("../../utils");
-const { sendUserDepositEmail} = require("../../utils");
-
+const express = require("express");
+const router = express.Router();
 const { v4: uuidv4 } = require("uuid");
-const app=express()
+const UsersDatabase = require("../../models/User");
+const { sendDepositEmail, sendUserDepositEmail } = require("../../utils");
 
-
-
-
-router.post("/:_id/deposit", async (req, res) => {
-  const { _id } = req.params;
-  const { currency, profit,date,amount,status,type} = req.body;
-
-  const user = await UsersDatabase.findOne({ _id });
-
+// Utility function to find a user
+const findUserById = async (id, res) => {
+  const user = await UsersDatabase.findOne({ _id: id });
   if (!user) {
     res.status(404).json({
       success: false,
       status: 404,
       message: "User not found",
     });
-
-    return;
   }
+  return user;
+};
+
+// POST /:_id/deposit
+router.post("/:_id/deposit", async (req, res) => {
+  const { _id } = req.params;
+  const { currency, profit, date, amount, status, type } = req.body;
 
   try {
-    await user.updateOne({
+    const user = await findUserById(_id, res);
+    if (!user) return;
 
-      history: [
-        ...user.history,
-        {
+    await user.updateOne({
+      $push: {
+        history: {
           _id: uuidv4(),
           currency,
           amount,
-        profit,
-        date,
-        type,
-        status,
+          profit,
+          date,
+          type,
+          status,
         },
-      ],
+      },
     });
 
     res.status(200).json({
@@ -48,72 +45,43 @@ router.post("/:_id/deposit", async (req, res) => {
       status: 200,
       message: "Deposit was successful",
     });
-
-   
-
-   
-
   } catch (error) {
-    console.log(error);
+    console.error("Error in deposit:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-
-
+// GET /:_id/deposit/history
 router.get("/:_id/deposit/history", async (req, res) => {
   const { _id } = req.params;
 
-  const user = await UsersDatabase.findOne({ _id });
-
-  if (!user) {
-    res.status(404).json({
-      success: false,
-      status: 404,
-      message: "User not found",
-    });
-
-    return;
-  }
-
   try {
+    const user = await findUserById(_id, res);
+    if (!user) return;
+
     res.status(200).json({
       success: true,
       status: 200,
-      data: [...user.transactions],
-    });
-
-    sendDepositEmail({
-      amount: amount,
-      method: method,
-      from: from,
-      url: url,
+      data: user.history || [],
     });
   } catch (error) {
-    console.log(error);
+    console.error("Error fetching deposit history:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
+// POST /:_id/withdrawal
 router.post("/:_id/withdrawal", async (req, res) => {
   const { _id } = req.params;
-  const { method, address, amount, from ,account} = req.body;
-
-  const user = await UsersDatabase.findOne({ _id });
-
-  if (!user) {
-    res.status(404).json({
-      success: false,
-      status: 404,
-      message: "User not found",
-    });
-
-    return;
-  }
+  const { method, address, amount, from, account } = req.body;
 
   try {
+    const user = await findUserById(_id, res);
+    if (!user) return;
+
     await user.updateOne({
-      withdrawals: [
-        ...user.withdrawals,
-        {
+      $push: {
+        withdrawals: {
           _id: uuidv4(),
           method,
           address,
@@ -122,7 +90,7 @@ router.post("/:_id/withdrawal", async (req, res) => {
           account,
           status: "pending",
         },
-      ],
+      },
     });
 
     res.status(200).json({
@@ -131,187 +99,77 @@ router.post("/:_id/withdrawal", async (req, res) => {
       message: "Withdrawal request was successful",
     });
 
-    sendDepositEmail({
-      amount: amount,
-      method: method,
-      from: from,
-    });
+    sendDepositEmail({ amount, method, from });
   } catch (error) {
-    console.log(error);
+    console.error("Error in withdrawal:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-// router.put('/approve/:_id', async (req,res)=>{
-//   const { _id} = req.params;
-//   const user = await UsersDatabase();
-//   const looper=user.map(function (userm){
-  
-//     const withdd=userm.withdrawal.findOne({_id})
-  
-//   withdd.status="approved"
-//    })
-//    looper();
-
-//    res.send({ message: 'Status updated successfully', data });
-
-// })
-
-// // endpoint for updating status
-// router.put('/update-status/:userId/:_id', async (req, res) => {
-
-//   const { _id} = req.params; // get ID from request parameter
-//   const { userId}=req.params;
-//   // const user = await UsersDatabase.findOne({userId}); // get array of objects containing ID from request body
-
-
-//   const withd=user.withdrawals.findOne({_id})
-// user[withd].status="approved"
- 
-
-// // find the object with the given ID and update its status property
-//   // const objIndex = data.findIndex(obj => obj._id === _id);
-//   // data[objIndex].status = 'approved';
-
-//   // send updated data as response
-
-//   if (!userId) {
-//     res.status(404).json({
-//       success: false,
-//       status: 404,
-//       message: "User not found",
-//     });
-
-//     return;
-//   }
-
-//   res.send({ message: 'Status updated successfully', data });
-// });
-
+// PUT /:_id/withdrawals/:transactionId/confirm
 router.put("/:_id/withdrawals/:transactionId/confirm", async (req, res) => {
-  
-  const { _id } = req.params;
-  const { transactionId } = req.params;
-
-  const user = await UsersDatabase.findOne({ _id });
-
-  if (!user) {
-    res.status(404).json({
-      success: false,
-      status: 404,
-      message: "User not found",
-    });
-
-    return;
-  }
+  const { _id, transactionId } = req.params;
 
   try {
-    const withdrawalsArray = user.withdrawals;
-    const withdrawalTx = withdrawalsArray.filter(
-      (tx) => tx._id === transactionId
-    );
+    const user = await findUserById(_id, res);
+    if (!user) return;
 
-    withdrawalTx[0].status = "Approved";
-    // console.log(withdrawalTx);
+    const withdrawal = user.withdrawals.find((tx) => tx._id === transactionId);
+    if (!withdrawal) {
+      return res.status(404).json({ success: false, message: "Transaction not found" });
+    }
 
-    // const cummulativeWithdrawalTx = Object.assign({}, ...user.withdrawals, withdrawalTx[0])
-    // console.log("cummulativeWithdrawalTx", cummulativeWithdrawalTx);
+    withdrawal.status = "Approved";
 
-    await user.updateOne({
-      withdrawals: [
-        ...user.withdrawals
-        //cummulativeWithdrawalTx
-      ],
-    });
+    await user.save();
 
-    res.status(200).json({
-      message: "Transaction approved",
-    });
-
-    return;
+    res.status(200).json({ success: true, message: "Transaction approved" });
   } catch (error) {
-    res.status(302).json({
-      message: "Opps! an error occured",
-    });
+    console.error("Error confirming withdrawal:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-
-
-
+// PUT /:_id/withdrawals/:transactionId/decline
 router.put("/:_id/withdrawals/:transactionId/decline", async (req, res) => {
-  
-  const { _id } = req.params;
-  const { transactionId } = req.params;
-
-  const user = await UsersDatabase.findOne({ _id });
-
-  if (!user) {
-    res.status(404).json({
-      success: false,
-      status: 404,
-      message: "User not found",
-    });
-
-    return;
-  }
+  const { _id, transactionId } = req.params;
 
   try {
-    const withdrawalsArray = user.withdrawals;
-    const withdrawalTx = withdrawalsArray.filter(
-      (tx) => tx._id === transactionId
-    );
+    const user = await findUserById(_id, res);
+    if (!user) return;
 
-    withdrawalTx[0].status = "Declined";
-    // console.log(withdrawalTx);
+    const withdrawal = user.withdrawals.find((tx) => tx._id === transactionId);
+    if (!withdrawal) {
+      return res.status(404).json({ success: false, message: "Transaction not found" });
+    }
 
-    // const cummulativeWithdrawalTx = Object.assign({}, ...user.withdrawals, withdrawalTx[0])
-    // console.log("cummulativeWithdrawalTx", cummulativeWithdrawalTx);
+    withdrawal.status = "Declined";
 
-    await user.updateOne({
-      withdrawals: [
-        ...user.withdrawals
-        //cummulativeWithdrawalTx
-      ],
-    });
+    await user.save();
 
-    res.status(200).json({
-      message: "Transaction Declined",
-    });
-
-    return;
+    res.status(200).json({ success: true, message: "Transaction declined" });
   } catch (error) {
-    res.status(302).json({
-      message: "Opps! an error occured",
-    });
+    console.error("Error declining withdrawal:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
-
+// GET /:_id/withdrawals/history
 router.get("/:_id/withdrawals/history", async (req, res) => {
-  console.log("Withdrawal request from: ", req.ip);
-
   const { _id } = req.params;
 
-  const user = await UsersDatabase.findOne({ _id });
-
-  if (!user) {
-    res.status(404).json({
-      success: false,
-      status: 404,
-      message: "User not found",
-    });
-
-    return;
-  }
-
   try {
+    const user = await findUserById(_id, res);
+    if (!user) return;
+
     res.status(200).json({
       success: true,
       status: 200,
-      data: [...user.withdrawals],
+      data: user.withdrawals || [],
     });
   } catch (error) {
-    console.log(error);
+    console.error("Error fetching withdrawal history:", error);
+    res.status(500).json({ success: false, message: "Server error" });
   }
 });
 
